@@ -1,15 +1,13 @@
-
 /**
  * menu-render.js
- * Renderiza o menu a partir de um arquivo JSON (base.json) no mesmo diretório.
- * Uso:
- *   <div id="app"></div>
- *   <script src="menu-render.js" defer></script>
+ * Lê menu.json e renderiza categorias e itens com opção de expandir/colapsar.
+ * Requer um elemento <div id="app"></div> na página.
+ * Não injeta CSS; estilos devem estar em stylelist.css.
  */
-
 (function () {
   const MENU_JSON_PATH = "base.json";
 
+  // Emojis por categoria (opcional)
   const emojiByCategory = {
     "Lanches e Salgados": "🥐",
     "Tapiocas": "🌮",
@@ -19,37 +17,63 @@
     "Refrigerantes e Energéticos": "🥤",
   };
 
-  // Ordem preferida de exibição (se alguma categoria não estiver na lista, será mostrada ao final)
+  // Ordem preferida das categorias (as demais ficam ao final, em ordem alfabética)
   const preferredOrder = [
     "Lanches e Salgados",
     "Tapiocas",
     "Doces, Bolos e Sobremesas",
     "Cafés e Bebidas Quentes",
     "Sucos, Vitaminas e Bebidas Frias",
-    "Refrigerantes e Energéticos"
+    "Refrigerantes e Energéticos",
   ];
 
+  // -------- Utilidades --------
   function formatBRL(value) {
+    const n = typeof value === "number" ? value : Number(value);
     try {
-      return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
-    } catch (_) {
-      // Fallback simples
-      const fixed = Number(value).toFixed(2).replace(".", ",");
+      return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
+    } catch {
+      const fixed = isFinite(n) ? n.toFixed(2).replace(".", ",") : "0,00";
       return `R$ ${fixed}`;
     }
   }
 
+  function slugify(str) {
+    return String(str || "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)+/g, "");
+  }
+
+  function collapsedKey(category) {
+    return `menuCollapsed:${category}`;
+  }
+
+  function safeGetItem(key) {
+    try { return localStorage.getItem(key); } catch { return null; }
+  }
+  function safeSetItem(key, val) {
+    try { localStorage.setItem(key, val); } catch {}
+  }
+
+  function setToggleVisual(btn, collapsed) {
+    btn.setAttribute("aria-expanded", String(!collapsed));
+    btn.textContent = collapsed ? "▶ Mostrar" : "▼ Ocultar";
+  }
+
+  // -------- Construção de elementos --------
   function createItemRow(itemObj) {
     const row = document.createElement("div");
     row.className = "menu-item";
 
     const nameEl = document.createElement("span");
     nameEl.className = "item-name";
-    nameEl.textContent = itemObj.item;
+    nameEl.textContent = String(itemObj?.item ?? "").trim();
 
     const priceEl = document.createElement("span");
     priceEl.className = "item-price";
-    priceEl.textContent = formatBRL(itemObj.preco);
+    priceEl.textContent = formatBRL(itemObj?.preco);
 
     row.appendChild(nameEl);
     row.appendChild(priceEl);
@@ -57,23 +81,63 @@
   }
 
   function createCategorySection(category, items) {
-    const frag = document.createDocumentFragment();
+    const safeCategory = typeof category === "string" ? category : "Categoria";
+    const safeItems = Array.isArray(items) ? items : [];
+
+    const section = document.createElement("section");
+    section.className = "menu-section";
+
+    // Header
+    const header = document.createElement("div");
+    header.className = "menu-section-header";
 
     const title = document.createElement("h2");
-    const emoji = emojiByCategory[category] || "";
-    title.textContent = `${emoji ? emoji + " " : ""}${category}`;
+    title.className = "menu-section-title";
+    const emoji = (emojiByCategory && emojiByCategory[safeCategory]) ? emojiByCategory[safeCategory] : "";
+    title.textContent = `${emoji ? emoji + " " : ""}${safeCategory}`;
 
-    frag.appendChild(title);
+    const toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.className = "menu-section-toggle";
 
+    // Painel controlado
+    const panelId = `panel-${slugify(safeCategory) || Math.random().toString(36).slice(2)}`;
     const listWrapper = document.createElement("div");
     listWrapper.className = "menu-category";
+    listWrapper.id = panelId;
 
-    items.forEach((it) => listWrapper.appendChild(createItemRow(it)));
+    toggleBtn.setAttribute("aria-controls", panelId);
 
-    frag.appendChild(listWrapper);
-    return frag;
+    // Estado inicial do painel (default agora é: COLAPSADO)
+    const stored = safeGetItem(collapsedKey(safeCategory));
+    const isCollapsed = stored === null ? true : stored === "true";
+    listWrapper.hidden = isCollapsed;
+    setToggleVisual(toggleBtn, isCollapsed)
+
+    // Itens
+    for (const it of safeItems) {
+      if (!it || typeof it !== "object") continue;
+      listWrapper.appendChild(createItemRow(it));
+    }
+
+    // Toggle
+    toggleBtn.addEventListener("click", () => {
+      const newCollapsed = !listWrapper.hidden ? true : false;
+      listWrapper.hidden = newCollapsed;
+      setToggleVisual(toggleBtn, newCollapsed);
+      safeSetItem(collapsedKey(safeCategory), String(newCollapsed));
+    });
+
+    header.appendChild(title);
+    header.appendChild(toggleBtn);
+
+    section.appendChild(header);
+    section.appendChild(listWrapper);
+
+    return section;
   }
 
+  // -------- Carregamento e render --------
   async function loadAndRender() {
     const app = document.getElementById("app");
     if (!app) {
@@ -91,8 +155,7 @@
       return;
     }
 
-    // Ordena categorias pela ordem preferida e mantém as demais ao final
-    const categories = Object.keys(data);
+    const categories = Object.keys(data || {});
     categories.sort((a, b) => {
       const ia = preferredOrder.indexOf(a);
       const ib = preferredOrder.indexOf(b);
@@ -105,32 +168,15 @@
     const container = document.createElement("div");
     container.className = "menu-container";
 
-    categories.forEach((cat) => {
+    for (const cat of categories) {
       const items = Array.isArray(data[cat]) ? data[cat] : [];
       container.appendChild(createCategorySection(cat, items));
-    });
+    }
 
     app.innerHTML = "";
     app.appendChild(container);
   }
 
-  // Estilos mínimos opcionais para layout (podem ser movidos para um CSS dedicado)
-  const baseStyle = document.createElement("style");
-  baseStyle.textContent = `
-    .menu-container { max-width: 900px; margin: 0 auto; padding: 16px; }
-    h2 { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif; 
-         margin: 24px 0 12px; font-size: 1.3rem; }
-    .menu-category { display: grid; grid-template-columns: 1fr; gap: 8px; }
-    .menu-item { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 1px dashed #ddd; padding: 6px 0; }
-    .item-name { font-size: 0.98rem; }
-    .item-price { font-weight: 600; }
-    @media (min-width: 640px) {
-      .menu-category { grid-template-columns: 1fr; }
-    }
-  `;
-  document.head.appendChild(baseStyle);
-
-  // Render
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", loadAndRender);
   } else {

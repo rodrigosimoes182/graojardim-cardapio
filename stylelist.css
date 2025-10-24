@@ -49,7 +49,7 @@ header p {
 .category:last-child {
     border-bottom: none;
     margin-bottom: 0;
-    padding-bottom: 10px;
+    padding-bottom: 20px;
 }
 
 .category h2 {
@@ -61,11 +61,11 @@ header p {
 }
 
 .menu-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 15px;
-    font-size: 1em;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 2px dashed #ddd;
+  padding: 6px 0;
 }
 
 .item-name {
@@ -76,7 +76,8 @@ header p {
 }
 
 .item-price {
-    font-weight: 500;
+    font-weight: 600;
     color: #6b4f4b;
+    font-style: bold;
     white-space: nowrap
 }
