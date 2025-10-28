@@ -58,8 +58,15 @@
   }
 
   function setToggleVisual(btn, collapsed) {
+    // aria-expanded true when panel is open
     btn.setAttribute("aria-expanded", String(!collapsed));
-    btn.textContent = collapsed ? "▶ Mostrar" : "▼ Ocultar";
+    // Update label text and icon rotation via classes
+    const label = btn.querySelector('.toggle-label');
+    const icon = btn.querySelector('.toggle-icon');
+    if (label) label.textContent = collapsed ? "Mostrar" : "Ocultar";
+    if (icon) {
+      if (collapsed) icon.classList.add('collapsed'); else icon.classList.remove('collapsed');
+    }
   }
 
   // -------- Construção de elementos --------
@@ -96,9 +103,17 @@
     const emoji = (emojiByCategory && emojiByCategory[safeCategory]) ? emojiByCategory[safeCategory] : "";
     title.textContent = `${emoji ? emoji + " " : ""}${safeCategory}`;
 
-    const toggleBtn = document.createElement("button");
-    toggleBtn.type = "button";
-    toggleBtn.className = "menu-section-toggle";
+  const toggleBtn = document.createElement("button");
+  toggleBtn.type = "button";
+  toggleBtn.className = "menu-section-toggle";
+
+  // Icon + label inside the toggle for nicer visuals and rotation
+  const toggleIcon = document.createElement("span");
+  toggleIcon.className = "toggle-icon";
+  const toggleLabel = document.createElement("span");
+  toggleLabel.className = "toggle-label";
+  toggleBtn.appendChild(toggleIcon);
+  toggleBtn.appendChild(toggleLabel);
 
     // Painel controlado
     const panelId = `panel-${slugify(safeCategory) || Math.random().toString(36).slice(2)}`;
@@ -111,8 +126,17 @@
     // Estado inicial do painel (default agora é: COLAPSADO)
     const stored = safeGetItem(collapsedKey(safeCategory));
     const isCollapsed = stored === null ? true : stored === "true";
-    listWrapper.hidden = isCollapsed;
-    setToggleVisual(toggleBtn, isCollapsed)
+
+    // Use class + max-height transition instead of hidden for smooth animation
+    if (isCollapsed) {
+      listWrapper.classList.add("collapsed");
+      listWrapper.style.maxHeight = "0px";
+    } else {
+      listWrapper.classList.remove("collapsed");
+      // set to exact height to allow transition from 0 to content height
+      listWrapper.style.maxHeight = "none"; // will be set properly after items are appended
+    }
+    setToggleVisual(toggleBtn, isCollapsed);
 
     // Itens
     for (const it of safeItems) {
@@ -120,10 +144,51 @@
       listWrapper.appendChild(createItemRow(it));
     }
 
+    // After items are appended, fix the maxHeight for expanded state so transition can run
+    if (!listWrapper.classList.contains("collapsed")) {
+      // Temporarily set to measured height so transitions later work if collapsing
+      const h = listWrapper.scrollHeight;
+      listWrapper.style.maxHeight = h ? h + "px" : "none";
+      // remove the explicit maxHeight after a tick so content changes won't be constrained
+      requestAnimationFrame(() => { listWrapper.style.maxHeight = "none"; });
+    }
+
     // Toggle
     toggleBtn.addEventListener("click", () => {
-      const newCollapsed = !listWrapper.hidden ? true : false;
-      listWrapper.hidden = newCollapsed;
+      // Determine new state: if currently collapsed then expand (false), else collapse (true)
+      const currentlyCollapsed = listWrapper.classList.contains("collapsed");
+      const newCollapsed = !currentlyCollapsed;
+
+      if (newCollapsed) {
+        // Collapse: set maxHeight to current scrollHeight then to 0 to animate
+        const curH = listWrapper.scrollHeight;
+        listWrapper.style.maxHeight = curH + "px";
+        // force reflow to ensure transition
+        // eslint-disable-next-line no-unused-expressions
+        listWrapper.offsetHeight;
+        requestAnimationFrame(() => {
+          listWrapper.style.maxHeight = "0px";
+          listWrapper.classList.add("collapsed");
+        });
+      } else {
+        // Expand: set to measured height then clear to allow natural growth
+        listWrapper.classList.remove("collapsed");
+        const targetH = listWrapper.scrollHeight;
+        listWrapper.style.maxHeight = "0px";
+        // force reflow
+        // eslint-disable-next-line no-unused-expressions
+        listWrapper.offsetHeight;
+        requestAnimationFrame(() => {
+          listWrapper.style.maxHeight = targetH + "px";
+        });
+        // After transition, allow auto height
+        const onEnd = function () {
+          listWrapper.style.maxHeight = "none";
+          listWrapper.removeEventListener("transitionend", onEnd);
+        };
+        listWrapper.addEventListener("transitionend", onEnd);
+      }
+
       setToggleVisual(toggleBtn, newCollapsed);
       safeSetItem(collapsedKey(safeCategory), String(newCollapsed));
     });
